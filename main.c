@@ -43,16 +43,18 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "event_groups.h"
+#include "GPIO.h"
 /* TODO: insert other definitions and declarations here. */
 
 /* Pin definitions */
-#define CS_PIN						(0U)
-#define SCK_PIN						(0U)
-#define MOSI_PIN					(0U)
+#define CS_PIN						(bit_2)
+#define SCK_PIN						(bit_3)
+#define MOSI_PIN					(bit_4)
+#define SPI_PORT					GPIO_B
 
 /* Half period of SCK definition in ms */
-#define SCK_HALF_PERIOD				(0U)
-#define MOSI_BYTE					(0x00)
+#define SCK_HALF_PERIOD				(500U)
+#define MOSI_BYTE					(0xAA)
 
 /* Event bits definitions */
 #define CHIPSELECT_EVENT			(1 << 0)
@@ -83,6 +85,7 @@ void mosi_task(void* param);
  */
 int main(void) {
 
+	gpio_pin_control_register_t pin_control_register = GPIO_MUX1;
   	/* Init board hardware. */
     BOARD_InitBootPins();
     BOARD_InitBootClocks();
@@ -90,7 +93,18 @@ int main(void) {
   	/* Init FSL debug console. */
     BOARD_InitDebugConsole();
 
-    PRINTF("Hello World\n");
+    GPIO_clock_gating(SPI_PORT);
+    GPIO_pin_control_register(SPI_PORT, SCK_PIN, &pin_control_register);
+    GPIO_pin_control_register(SPI_PORT, CS_PIN, &pin_control_register);
+    GPIO_pin_control_register(SPI_PORT, MOSI_PIN, &pin_control_register);
+    GPIO_data_direction_pin(SPI_PORT, GPIO_OUTPUT, SCK_PIN);
+    GPIO_data_direction_pin(SPI_PORT, GPIO_OUTPUT, CS_PIN);
+    GPIO_data_direction_pin(SPI_PORT, GPIO_OUTPUT, MOSI_PIN);
+    GPIO_clear_pin(SPI_PORT, SCK_PIN);
+    GPIO_set_pin(SPI_PORT, CS_PIN);
+    GPIO_clear_pin(SPI_PORT, MOSI_PIN);
+
+
 
     /* Force the counter to be placed into memory. */
     volatile static int i = 0 ;
@@ -120,6 +134,7 @@ void chipSelect_task(void* param)
 		{
 			xEventGroupClearBits(parameters_task.SPI_event, CHIPSELECT_EVENT);
 		}
+		GPIO_tooglePIN(SPI_PORT, CS_PIN);
 	}
 }
 void clk_task(void* param)
@@ -135,28 +150,50 @@ void clk_task(void* param)
 		switch (clkState)
 		{
 			case LOW:
-				parameters_task.mosiBit = (MOSI_BYTE && newBitMask);
-				newBitMask <<= 1;
+
+				if (newBitMask == 0x80)
+				{
+					newBitMask = 1;
+					parameters_task.mosiBit = (MOSI_BYTE && newBitMask);
+				}
+				else
+				{
+					parameters_task.mosiBit = (MOSI_BYTE && newBitMask);
+					newBitMask <<= 1;
+				}
+
 				xEventGroupSetBits(parameters_task.SPI_event, CLK_FALL_EDGE_EVENT);
+				clkState = HIGH;
 			break;
 
 			case HIGH:
 				xEventGroupSetBits(parameters_task.SPI_event, CLK_RISE_EDGE_EVENT);
+				clkState = LOW;
 			break;
 
 			default:
 			break;
 		}
-
-
+		GPIO_tooglePIN(SPI_PORT, SCK_PIN);
+		vTaskDelay(pdMS_TO_TICKS(SCK_HALF_PERIOD));
 	}
+
 }
 void mosi_task(void* param)
 {
 	parameters_task_t parameters_task = *((parameters_task_t*) param);
-
+	static lastBit = LOW;
+	bit_t bitToSend = LOW;
 	for(;;)
 	{
+		xEventGroupWaitBits(parameters_task.SPI_event, CLK_FALL_EDGE_EVENT, pdTRUE, pdTRUE, portMAX_DELAY);
+		bitToSend = parameters_task.mosiBit;
+		xEventGroupWaitBits(parameters_task.SPI_event, CLK_RISE_EDGE_EVENT, pdTRUE, pdTRUE, portMAX_DELAY);
+		if (lastBit != bitToSend)
+		{
+			GPIO_tooglePIN(SPI_PORT, CS_PIN);
+			lastBit = bitToSend;
+		}
 
 	}
 }
