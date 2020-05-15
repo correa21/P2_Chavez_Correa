@@ -68,7 +68,7 @@ typedef enum {LOW, HIGH} bit_t;
 typedef struct
 {
 	EventGroupHandle_t SPI_event;
-	bit_t misoBit;
+	bit_t csBit;
 }parameters_task_t;
 
 
@@ -101,3 +101,25 @@ int main(void) {
     }
     return 0 ;
 }
+
+
+void chipSelect_task(void* param)
+{
+
+	parameters_task_t parameters_task = *((parameters_task_t*) param);
+
+	for(;;)
+	{
+		if (LOW == parameters_task.csBit)
+		{
+			xEventGroupSetBits(parameters_task.SPI_event, CHIPSELECT_EVENT);
+		}
+		else
+		{
+			xEventGroupClearBits(parameters_task.SPI_event, CHIPSELECT_EVENT);
+		}
+	}
+
+}
+void clk_task(void* param);
+void mosi_task(void* param);
