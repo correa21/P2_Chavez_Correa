@@ -52,6 +52,7 @@
 
 /* Half period of SCK definition in ms */
 #define SCK_HALF_PERIOD				(0U)
+#define MOSI_BYTE					(0x00)
 
 /* Event bits definitions */
 #define CHIPSELECT_EVENT			(1 << 0)
@@ -69,6 +70,7 @@ typedef struct
 {
 	EventGroupHandle_t SPI_event;
 	bit_t csBit;
+	bit_t mosiBit;
 }parameters_task_t;
 
 
@@ -119,7 +121,42 @@ void chipSelect_task(void* param)
 			xEventGroupClearBits(parameters_task.SPI_event, CHIPSELECT_EVENT);
 		}
 	}
-
 }
-void clk_task(void* param);
-void mosi_task(void* param);
+void clk_task(void* param)
+{
+	static uint8_t newBitMask = (1<<0);
+	static bit_t clkState = LOW;
+	parameters_task_t parameters_task = *((parameters_task_t*) param);
+
+
+	for(;;)
+	{
+		xEventGroupWaitBits(parameters_task.SPI_event, CHIPSELECT_EVENT, pdFALSE, pdTRUE, portMAX_DELAY);
+		switch (clkState)
+		{
+			case LOW:
+				parameters_task.mosiBit = (MOSI_BYTE && newBitMask);
+				newBitMask <<= 1;
+				xEventGroupSetBits(parameters_task.SPI_event, CLK_FALL_EDGE_EVENT);
+			break;
+
+			case HIGH:
+				xEventGroupSetBits(parameters_task.SPI_event, CLK_RISE_EDGE_EVENT);
+			break;
+
+			default:
+			break;
+		}
+
+
+	}
+}
+void mosi_task(void* param)
+{
+	parameters_task_t parameters_task = *((parameters_task_t*) param);
+
+	for(;;)
+	{
+
+	}
+}
