@@ -44,6 +44,7 @@
 #include "task.h"
 #include "event_groups.h"
 #include "GPIO.h"
+#include "Bits.h"
 /* TODO: insert other definitions and declarations here. */
 
 /* Pin definitions */
@@ -106,14 +107,23 @@ int main(void) {
 
 
 
-    /* Force the counter to be placed into memory. */
-    volatile static int i = 0 ;
-    /* Enter an infinite loop, just incrementing a counter. */
-    while(1) {
-        i++ ;
-        /* 'Dummy' NOP to allow source level single stepping of
-            tight while() loop */
-        __asm volatile ("nop");
+    parameters_task_t parameters;
+    parameters.SPI_event =  xEventGroupCreate();
+    parameters.csBit = LOW;
+    parameters.mosiBit = LOW;
+
+    xEventGroupClearBits(parameters.SPI_event, (CHIPSELECT_EVENT | CLK_RISE_EDGE_EVENT | CLK_FALL_EDGE_EVENT));
+
+    xTaskCreate(chipSelect_task, "chipSelect", 200, (void*) &parameters, TASK_CHIPSELECT_PRIO, NULL);
+	xTaskCreate(clk_task, "clk_task", 200, (void*) &parameters, TASK_CLK_PRIO, NULL);
+	xTaskCreate(mosi_task, "mosi_task", 200, (void*) &parameters, TASK_MOSI_PRIO, NULL);
+
+	vTaskStartScheduler();
+
+
+    while(1)
+    {
+
     }
     return 0 ;
 }
@@ -129,12 +139,14 @@ void chipSelect_task(void* param)
 		if (LOW == parameters_task.csBit)
 		{
 			xEventGroupSetBits(parameters_task.SPI_event, CHIPSELECT_EVENT);
+			GPIO_clear_pin(SPI_PORT, CS_PIN);
 		}
 		else
 		{
 			xEventGroupClearBits(parameters_task.SPI_event, CHIPSELECT_EVENT);
+			GPIO_set_pin(SPI_PORT, CS_PIN);
 		}
-		GPIO_tooglePIN(SPI_PORT, CS_PIN);
+		vTaskDelay(portMAX_DELAY);
 	}
 }
 void clk_task(void* param)
@@ -174,7 +186,7 @@ void clk_task(void* param)
 			default:
 			break;
 		}
-		GPIO_tooglePIN(SPI_PORT, SCK_PIN);
+		GPIO_toogle_pin(SPI_PORT, SCK_PIN);
 		vTaskDelay(pdMS_TO_TICKS(SCK_HALF_PERIOD));
 	}
 
@@ -182,7 +194,7 @@ void clk_task(void* param)
 void mosi_task(void* param)
 {
 	parameters_task_t parameters_task = *((parameters_task_t*) param);
-	static lastBit = LOW;
+	static bit_t lastBit = LOW;
 	bit_t bitToSend = LOW;
 	for(;;)
 	{
@@ -191,7 +203,7 @@ void mosi_task(void* param)
 		xEventGroupWaitBits(parameters_task.SPI_event, CLK_RISE_EDGE_EVENT, pdTRUE, pdTRUE, portMAX_DELAY);
 		if (lastBit != bitToSend)
 		{
-			GPIO_tooglePIN(SPI_PORT, CS_PIN);
+			GPIO_toogle_pin(SPI_PORT, CS_PIN);
 			lastBit = bitToSend;
 		}
 
