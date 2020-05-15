@@ -164,25 +164,22 @@ void clk_task(void* param)
 		{
 			case LOW:
 
-				if (newBitMask == 0x80)
+				if (newBitMask > 0xff)
 				{
 					newBitMask = 1;
 					bit = (MOSI_BYTE & newBitMask);
-					xQueueSend(parameters_task.mosiBit,&bit,portMAX_DELAY);
 				}
 				else
 				{
 					bit = (MOSI_BYTE & newBitMask);
-					xQueueSend(parameters_task.mosiBit,&bit,portMAX_DELAY);
 					newBitMask <<= 1;
 				}
-
-				xEventGroupSetBits(parameters_task.SPI_event, CLK_FALL_EDGE_EVENT);
+				xEventGroupSetBits(parameters_task.SPI_event, CLK_RISE_EDGE_EVENT);
 				clkState = HIGH;
 			break;
 
 			case HIGH:
-				xEventGroupSetBits(parameters_task.SPI_event, CLK_RISE_EDGE_EVENT);
+				xQueueSend(parameters_task.mosiBit,&bit,portMAX_DELAY);
 				clkState = LOW;
 			break;
 
