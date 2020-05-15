@@ -40,10 +40,43 @@
 #include "MK66F18.h"
 #include "fsl_debug_console.h"
 /* TODO: insert other include files here. */
-
+#include "FreeRTOS.h"
+#include "task.h"
+#include "event_groups.h"
 /* TODO: insert other definitions and declarations here. */
 
+/* Pin definitions */
+#define CS_PIN						(0U)
+#define SCK_PIN						(0U)
+#define MOSI_PIN					(0U)
+
+/* Half period of SCK definition in ms */
+#define SCK_HALF_PERIOD				(0U)
+
+/* Event bits definitions */
+#define CHIPSELECT_EVENT			(1 << 0)
+#define CLK_RISE_EDGE_EVENT			(1 << 1)
+#define CLK_FALL_EDGE_EVENT			(1 << 2)
+
+/*** TASK PRIORITIES ***/
+#define TASK_CHIPSELECT_PRIO      	(configMAX_PRIORITIES-4)
+#define TASK_CLK_PRIO      			(configMAX_PRIORITIES-3)
+#define TASK_MOSI_PRIO      		(configMAX_PRIORITIES-2)
+
+typedef enum {LOW, HIGH} bit_t;
+
+typedef struct
+{
+	EventGroupHandle_t SPI_event;
+	bit_t misoBit;
+}parameters_task_t;
+
+
+void chipSelect_task(void* param);
+void clk_task(void* param);
+void mosi_task(void* param);
 /*
+ *
  * @brief   Application entry point.
  */
 int main(void) {
