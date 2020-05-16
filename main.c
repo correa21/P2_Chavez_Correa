@@ -62,6 +62,7 @@
 #define CHIPSELECT_EVENT			(1 << 0)
 #define CLK_RISE_EDGE_EVENT			(1 << 1)
 #define CLK_FALL_EDGE_EVENT			(1 << 2)
+#define BYTE_SENDED_EVENT			(1 << 3)
 
 /*** TASK PRIORITIES ***/
 #define TASK_CHIPSELECT_PRIO      	(configMAX_PRIORITIES-2)
@@ -77,10 +78,12 @@ typedef struct
 	bit_t csBit;
 }parameters_task_t;
 
-
 void chipSelect_task(void* param);
 void clk_task(void* param);
 void mosi_task(void* param);
+
+bit_t gCsBit = LOW;
+
 /*
  *
  * @brief   Application entry point.
@@ -111,7 +114,7 @@ int main(void) {
     static parameters_task_t parameters;
     parameters.SPI_event =  xEventGroupCreate();
     parameters.csBit = LOW;
-    parameters.mosiBit = xQueueCreate(8,sizeof(bit_t));
+    parameters.mosiBit = xQueueCreate(8, sizeof(bit_t));
 
 
     xTaskCreate(chipSelect_task, "chipSelect", 200, (void*) &parameters, TASK_CHIPSELECT_PRIO, NULL);
@@ -140,13 +143,20 @@ void chipSelect_task(void* param)
 		{
 			xEventGroupSetBits(parameters_task.SPI_event, CHIPSELECT_EVENT);
 			GPIO_clear_pin(SPI_PORT, CS_PIN);
+			gCsBit = LOW;
 		}
-		else
+		if((HIGH == parameters_task.csBit))
 		{
 			xEventGroupClearBits(parameters_task.SPI_event, CHIPSELECT_EVENT);
 			GPIO_set_pin(SPI_PORT, CS_PIN);
+			vTaskDelay(pdMS_TO_TICKS(4 * SCK_HALF_PERIOD));
+			xEventGroupSetBits(parameters_task.SPI_event, BYTE_SENDED_EVENT);
+			gCsBit = HIGH;
 		}
-		vTaskDelay(portMAX_DELAY);
+		xEventGroupWaitBits(parameters_task.SPI_event, BYTE_SENDED_EVENT, pdTRUE, pdTRUE, portMAX_DELAY);
+		parameters_task.csBit = !parameters_task.csBit;
+
+
 	}
 }
 void clk_task(void* param)
@@ -156,30 +166,34 @@ void clk_task(void* param)
 	static uint8_t bit;
 	parameters_task_t parameters_task = *((parameters_task_t*) param);
 
-	xEventGroupWaitBits(parameters_task.SPI_event, CHIPSELECT_EVENT, pdFALSE, pdTRUE, portMAX_DELAY);
 
 	for(;;)
 	{
-				switch (clkState)
+		switch (clkState)
 		{
 			case LOW:
-
-				if (newBitMask > 0xff)
+				if(LOW == gCsBit)
 				{
-					newBitMask = 1;
-					bit = (MOSI_BYTE & newBitMask);
+					if (newBitMask > 0x80)
+					{
+						newBitMask = 1;
+						bit = (MOSI_BYTE & newBitMask);
+					}
+					else
+					{
+						bit = (MOSI_BYTE & newBitMask);
+						newBitMask <<= 1;
+					}
+					xEventGroupSetBits(parameters_task.SPI_event, CLK_RISE_EDGE_EVENT);
 				}
-				else
-				{
-					bit = (MOSI_BYTE & newBitMask);
-					newBitMask <<= 1;
-				}
-				xEventGroupSetBits(parameters_task.SPI_event, CLK_RISE_EDGE_EVENT);
 				clkState = HIGH;
 			break;
 
 			case HIGH:
-				xQueueSend(parameters_task.mosiBit,&bit,portMAX_DELAY);
+				if(LOW == gCsBit)
+				{
+					xQueueSend(parameters_task.mosiBit,&bit,portMAX_DELAY);
+				}
 				clkState = LOW;
 			break;
 
@@ -194,17 +208,24 @@ void clk_task(void* param)
 void mosi_task(void* param)
 {
 	parameters_task_t parameters_task = *((parameters_task_t*) param);
-	static bit_t lastBit = LOW;
+
+	static uint8_t byte = 0;
 	bit_t bitToSend = LOW;
 	for(;;)
 	{
+		xEventGroupWaitBits(parameters_task.SPI_event, CHIPSELECT_EVENT, pdFALSE, pdTRUE, portMAX_DELAY);
 		xQueueReceive(parameters_task.mosiBit, &bitToSend, portMAX_DELAY);
 		xEventGroupWaitBits(parameters_task.SPI_event, CLK_RISE_EDGE_EVENT, pdTRUE, pdTRUE, portMAX_DELAY);
-		if (lastBit != bitToSend)
+		if (7 < byte)
+		{
+			byte = 0;
+			GPIO_clear_pin(SPI_PORT, MOSI_PIN);
+			xEventGroupSetBits(parameters_task.SPI_event, BYTE_SENDED_EVENT);
+		}
+		else
 		{
 			GPIO_toogle_pin(SPI_PORT, MOSI_PIN);
-			lastBit = bitToSend;
 		}
-
+		byte++;
 	}
 }
