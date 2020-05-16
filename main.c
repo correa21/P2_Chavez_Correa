@@ -66,7 +66,7 @@
 
 /*** TASK PRIORITIES ***/
 #define TASK_CHIPSELECT_PRIO      	(configMAX_PRIORITIES-2)
-#define TASK_CLK_PRIO      			(configMAX_PRIORITIES-3)
+#define TASK_CLK_PRIO      			(configMAX_PRIORITIES-4)
 #define TASK_MOSI_PRIO      		(configMAX_PRIORITIES-4)
 
 typedef enum {LOW, HIGH} bit_t;
@@ -83,7 +83,7 @@ void clk_task(void* param);
 void mosi_task(void* param);
 
 bit_t gCsBit = LOW;
-
+bit_t clkState = LOW;
 /*
  *
  * @brief   Application entry point.
@@ -144,6 +144,7 @@ void chipSelect_task(void* param)
 			xEventGroupSetBits(parameters_task.SPI_event, CHIPSELECT_EVENT);
 			GPIO_clear_pin(SPI_PORT, CS_PIN);
 			gCsBit = LOW;
+			clkState = LOW;
 		}
 		if((HIGH == parameters_task.csBit))
 		{
@@ -162,7 +163,7 @@ void chipSelect_task(void* param)
 void clk_task(void* param)
 {
 	static uint8_t newBitMask = 1;
-	static bit_t clkState = LOW;
+
 	static uint8_t bit;
 	parameters_task_t parameters_task = *((parameters_task_t*) param);
 
@@ -220,6 +221,7 @@ void mosi_task(void* param)
 		{
 			byte = 0;
 			GPIO_clear_pin(SPI_PORT, MOSI_PIN);
+			vTaskDelay(pdMS_TO_TICKS(2 * SCK_HALF_PERIOD));
 			xEventGroupSetBits(parameters_task.SPI_event, BYTE_SENDED_EVENT);
 		}
 		else
